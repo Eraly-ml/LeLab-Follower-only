@@ -41,8 +41,9 @@ const RobotTile: React.FC<RobotTileProps> = ({
   onDelete,
 }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const status = robot ? (robot.is_clean ? "Ready" : "Needs configuration") : null;
-  const teleopDisabled = !robot || !robot.is_clean;
+  const followerReady = !!robot?.follower_port && !!robot?.follower_config;
+  const status = robot ? (robot.is_clean ? "Ready" : followerReady ? "Virtual preview" : "Needs configuration") : null;
+  const teleopDisabled = !robot || (!robot.is_clean && !followerReady);
 
   return (
     <div className="bg-gray-800 rounded-lg border border-gray-700 p-3 flex flex-col gap-2 relative">
@@ -59,7 +60,7 @@ const RobotTile: React.FC<RobotTileProps> = ({
         {status && (
           <p
             className={`text-xs truncate shrink-0 ${
-              robot!.is_clean ? "text-green-400" : "text-amber-400"
+              (robot!.is_clean || followerReady) ? "text-green-400" : "text-amber-400"
             }`}
           >
             {status}

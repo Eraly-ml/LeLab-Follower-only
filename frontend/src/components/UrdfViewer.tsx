@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import URDFManipulator from "urdf-loader/src/urdf-manipulator-element.js";
 import { useUrdf } from "@/hooks/useUrdf";
 import { useRealTimeJoints } from "@/hooks/useRealTimeJoints";
+import { useApi } from "@/contexts/ApiContext";
 import {
   createUrdfViewer,
   fitGridToRobot,
@@ -32,7 +33,10 @@ interface UrdfViewerElement extends HTMLElement {
   setJointValue?: (jointName: string, value: number) => void;
 }
 
-const UrdfViewer: React.FC = () => {
+const UrdfViewer: React.FC<{ virtual?: boolean; sessionError?: string }> = ({ virtual = false, sessionError = "" }) => {
+  const { baseUrl, fetchWithHeaders } = useApi();
+  const [controlError, setControlError] = useState("");
+  const [cartesian, setCartesian] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [highlightedJoint, setHighlightedJoint] = useState<string | null>(null);
   const { registerUrdfProcessor, alternativeUrdfModels, isDefaultModel } =
@@ -133,6 +137,113 @@ const UrdfViewer: React.FC = () => {
     // Create and configure the URDF viewer element
     const viewer = createUrdfViewer(containerRef.current, true);
     viewerRef.current = viewer; // Store reference to the viewer
+    // URDFManipulator invokes updateJoint only for a mouse drag; live feedback
+    // uses setJointValue directly and therefore never sends a motion command.
+    const interactive = viewer as URDFViewerElement & {
+      dragControls?: { updateJoint: (joint: {name: string}, angle: number) => void; setGrabbed: (grabbed: boolean) => void };
+      __draggingJoint?: string | null;
+      __cartesianDrag?: boolean;
+      world: THREE.Object3D;
+    };
+    let requestPending = false;
+    let holdPending = false;
+    let pendingRequest: Promise<void> | null = null;
+    let cancelled = false;
+    let desired: { joint: string; angle: number } | { delta: number[] } | null = null;
+    let cartesianReady = false;
+    let cartesianBegin: Promise<void> | null = null;
+    let pointerStart: { x: number; y: number } | null = null;
+    let lastPointer: { x: number; y: number } | null = null;
+    let dragTimer: ReturnType<typeof setInterval> | null = null;
+    const sendDesired = () => {
+      if (cancelled || requestPending || holdPending || !desired || (cartesian && !cartesianReady)) return;
+      const command = desired;
+      requestPending = true;
+      pendingRequest = fetchWithHeaders(`${baseUrl}/${cartesian ? "virtual/cartesian/move" : "virtual/move"}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(command),
+      }).then(r => r.json()).then(data => {
+        if (!data.success && !cancelled) setControlError(previous => previous || data.message || "Ошибка управления");
+      }).catch(() => { if (!cancelled) setControlError(previous => previous || "Нет связи с роботом"); })
+        .finally(() => { requestPending = false; pendingRequest = null; });
+    };
+    const onHoverJoint = () => { viewer.controls.enabled = false; };
+    const onLeaveJoint = () => { if (!interactive.__draggingJoint) viewer.controls.enabled = true; };
+    const onDragStart = (event: Event) => {
+      interactive.__draggingJoint = (event as CustomEvent).detail;
+      interactive.__cartesianDrag = cartesian;
+      desired = null;
+      if (dragTimer) clearInterval(dragTimer);
+      if (cartesian) {
+        pointerStart = lastPointer;
+        cartesianReady = false;
+        cartesianBegin = fetchWithHeaders(`${baseUrl}/virtual/cartesian/begin`, { method: "POST" })
+          .then(r => r.json()).then(data => {
+            if (!data.success) { if (!cancelled) setControlError(data.message || "Ошибка кинематики"); return; }
+            cartesianReady = true;
+          }).catch(() => { if (!cancelled) setControlError("Нет связи с роботом"); });
+      }
+      dragTimer = setInterval(sendDesired, 60);
+    };
+    const onDragEnd = () => {
+      const joint = interactive.__draggingJoint;
+      interactive.__draggingJoint = null;
+      interactive.__cartesianDrag = false;
+      desired = null;
+      if (dragTimer) clearInterval(dragTimer);
+      dragTimer = null;
+      if (!joint || cancelled) return;
+      holdPending = true;
+      const outstanding = Promise.all([pendingRequest || Promise.resolve(), cartesianBegin || Promise.resolve()]);
+      outstanding.then(() => fetchWithHeaders(`${baseUrl}/${cartesian ? "virtual/cartesian/release" : "virtual/release"}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cartesian ? {} : { joint }), keepalive: true,
+      })).then(r => r.json()).then(data => {
+        if (!data.success && !cancelled) setControlError(previous => previous || data.message || "Ошибка остановки");
+      }).catch(() => { if (!cancelled) setControlError(previous => previous || "Нет связи с роботом"); })
+        .finally(() => { holdPending = false; });
+    };
+    const releaseDrag = () => {
+      desired = null;
+      if (dragTimer) clearInterval(dragTimer);
+      dragTimer = null;
+      interactive.dragControls?.setGrabbed(false);
+      interactive.__draggingJoint = null;
+    };
+    const recordPointer = (event: PointerEvent) => {
+      lastPointer = { x: event.clientX, y: event.clientY };
+      if (!cartesian || !interactive.__draggingJoint || !pointerStart) return;
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(viewer.camera.quaternion);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(viewer.camera.quaternion);
+      const delta = right.multiplyScalar((event.clientX - pointerStart.x) * 0.00075)
+        .add(up.multiplyScalar(-(event.clientY - pointerStart.y) * 0.00075));
+      const frame = new THREE.Quaternion();
+      interactive.world.getWorldQuaternion(frame);
+      delta.applyQuaternion(frame.invert());
+      if (delta.length() > 0.06) delta.setLength(0.06);
+      desired = { delta: delta.toArray() };
+      sendDesired();
+    };
+    if (virtual && interactive.dragControls) {
+      window.addEventListener("pointerdown", recordPointer, true);
+      window.addEventListener("pointermove", recordPointer, true);
+      window.addEventListener("mouseup", releaseDrag);
+      window.addEventListener("pointerup", releaseDrag);
+      window.addEventListener("pointercancel", releaseDrag);
+      window.addEventListener("blur", releaseDrag);
+      interactive.addEventListener("joint-mouseover", onHoverJoint);
+      interactive.addEventListener("joint-mouseout", onLeaveJoint);
+      interactive.addEventListener("manipulate-start", onDragStart);
+      interactive.addEventListener("manipulate-end", onDragEnd);
+      interactive.dragControls.updateJoint = (joint, angle) => {
+        if (cartesian) return;
+        viewer.setJointValue(joint.name, angle);
+        if (!interactive.__draggingJoint || !Number.isFinite(angle)) return;
+        desired = { joint: joint.name, angle };
+        sendDesired();
+      };
+    }
+
 
     // Setup mesh loading function with appropriate URL modifier
     const activeUrlModifier = isDefaultModel
@@ -256,6 +367,19 @@ const UrdfViewer: React.FC = () => {
         cleanupAnimationRef.current = null;
       }
       hasInitializedRef.current = false;
+      cancelled = true;
+      window.removeEventListener("pointerdown", recordPointer, true);
+      window.removeEventListener("pointermove", recordPointer, true);
+      window.removeEventListener("mouseup", releaseDrag);
+      window.removeEventListener("pointerup", releaseDrag);
+      window.removeEventListener("pointercancel", releaseDrag);
+      window.removeEventListener("blur", releaseDrag);
+      desired = null;
+      if (dragTimer) clearInterval(dragTimer);
+      interactive.removeEventListener("joint-mouseover", onHoverJoint);
+      interactive.removeEventListener("joint-mouseout", onLeaveJoint);
+      interactive.removeEventListener("manipulate-start", onDragStart);
+      interactive.removeEventListener("manipulate-end", onDragEnd);
       cleanupJointHighlighting();
       cleanupModelLoading();
       viewer.removeEventListener("urdf-processed", onModelProcessed);
@@ -266,6 +390,7 @@ const UrdfViewer: React.FC = () => {
     urlModifierFunc,
     defaultUrlModifier,
     alternativeUrdfModels,
+    virtual, cartesian, baseUrl, fetchWithHeaders,
   ]);
 
   return (
@@ -277,6 +402,13 @@ const UrdfViewer: React.FC = () => {
     >
       <div ref={containerRef} className="w-full h-full" />
 
+      {virtual && <div className="absolute bottom-4 left-4 z-10 flex gap-2 bg-black/80 rounded p-2">
+        <button type="button" className={`px-3 py-1 rounded ${!cartesian ? "bg-blue-700" : "bg-gray-700"} text-white`} onClick={() => setCartesian(false)}>Суставы</button>
+        <button type="button" className={`px-3 py-1 rounded ${cartesian ? "bg-blue-700" : "bg-gray-700"} text-white`} onClick={() => setCartesian(true)}>Вся рука</button>
+      </div>}
+      {sessionError && <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-6"><div className="bg-red-900 text-white p-5 rounded-lg max-w-md">Управление остановлено: {sessionError}. Вернитесь стрелкой и запустите Teleoperation снова.</div></div>}
+      {virtual && <div className="absolute top-4 left-4 z-10 bg-black/80 text-white px-3 py-2 rounded text-sm">{cartesian ? "Тяните модель: конец руки переместится в плоскости экрана" : "Тяните отдельное звено мышью"} · W: закрыть · E: открыть</div>}
+      {controlError && <div className="absolute bottom-4 left-4 z-10 bg-red-900 text-white px-3 py-2 rounded text-sm">{controlError}</div>}
       {/* Joint highlight indicator */}
       {highlightedJoint && (
         <div className="absolute bottom-4 right-4 bg-black/70 text-white px-3 py-2 rounded-md text-sm font-mono z-10">

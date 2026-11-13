@@ -36,6 +36,7 @@ export const useRealTimeJoints = ({
       const viewer = viewerRef.current;
       if (!viewer || typeof viewer.setJointValue !== "function") return;
       Object.entries(joints).forEach(([jointName, value]) => {
+        if (!(viewer as URDFViewerElement & {__cartesianDrag?: boolean}).__cartesianDrag && (viewer as URDFViewerElement & {__draggingJoint?: string | null}).__draggingJoint === jointName) return;
         try {
           viewer.setJointValue(jointName, value);
         } catch (error) {

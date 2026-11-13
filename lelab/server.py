@@ -353,6 +353,51 @@ def get_configs():
     return {"leader_configs": leader_configs, "follower_configs": follower_configs}
 
 
+from . import manual_control as _manual_control
+
+@app.middleware("http")
+async def restrict_virtual_origin(request: Request, call_next):
+    if request.url.path.startswith("/virtual/"):
+        origin = request.headers.get("origin")
+        if origin and origin not in ("http://127.0.0.1:8000", "http://localhost:8000"):
+            return JSONResponse(status_code=403, content={"detail": "Invalid origin"})
+    return await call_next(request)
+
+@app.post("/virtual/start")
+def virtual_start(request: _manual_control.ManualRequest):
+    result = _manual_control.start(request)
+    if result.get("success"):
+        _manual_control.start_visualization(manager)
+    return result
+
+@app.post("/virtual/move")
+def virtual_move(request: _manual_control.TargetRequest):
+    return _manual_control.move_target(request)
+
+@app.post("/virtual/release")
+def virtual_release(request: _manual_control.ReleaseRequest):
+    return _manual_control.release_target(request)
+
+@app.post("/virtual/cartesian/begin")
+def virtual_cartesian_begin():
+    return _manual_control.cartesian_begin()
+
+@app.post("/virtual/cartesian/move")
+def virtual_cartesian_move(request: _manual_control.CartesianMoveRequest):
+    return _manual_control.cartesian_move(request)
+
+@app.post("/virtual/cartesian/release")
+def virtual_cartesian_release():
+    return _manual_control.cartesian_release()
+
+@app.get("/virtual/status")
+def virtual_status():
+    return _manual_control.status()
+
+@app.post("/virtual/stop")
+def virtual_stop():
+    return _manual_control.stop()
+
 @app.post("/move-arm")
 def teleoperate_arm(request: TeleoperateRequest):
     """Start teleoperation of the robot arm"""
@@ -975,6 +1020,8 @@ def run_update():
 @app.post("/start-calibration")
 def start_calibration(request: CalibrationRequest):
     """Start calibration process"""
+    if _manual_control.is_active():
+        return {"success": False, "message": "Сначала отключите ручное управление."}
     return calibration_manager.start_calibration(request)
 
 
@@ -1468,6 +1515,7 @@ async def shutdown_event():
     """Clean up resources when FastAPI shuts down"""
     logger.info("🔄 FastAPI shutting down, cleaning up...")
 
+    _manual_control.stop()
     _record.stop_recording_and_wait()
 
     if manager:

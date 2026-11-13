@@ -1,5 +1,27 @@
 <h1 align="center">🦾 LeLab</h1>
 
+## SO-101 follower-only modification
+
+This repository contains an experimental modification of LeLab for controlling an
+SO-101 follower without a physical leader. Calibrate the follower first, then
+start virtual teleoperation. Drag a joint in **Суставы**, or select **Вся рука**
+to drag the gripper position in the screen plane. Hold **W** to close the gripper
+and **E** to open it. The whole-arm solver controls position, not orientation.
+
+For this modification, use a source checkout and an editable install (Python
+3.12 or newer), then install the additional kinematics dependencies:
+
+```bash
+python -m pip install -e .
+python -m pip install 'placo>=0.9.6,<0.9.16' 'cmeel-urdfdom>=4,<5' 'cmeel-tinyxml2<11'
+lelab
+```
+
+The whole-arm mode is experimental and does not avoid collisions. Keep the
+workspace clear, verify calibration and support the arm when disconnecting:
+motors may release it. Stop if the arm binds or a motor strains. This fork has
+been tested on one SO-101 follower; behavior may vary with calibration and hardware.
+
 <p align="center">
   <b>The official graphical interface for <a href="https://github.com/huggingface/lerobot">LeRobot</a>.</b>
 </p>

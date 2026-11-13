@@ -34,7 +34,8 @@ const RobotConfigManager: React.FC<RobotConfigManagerProps> = ({
 
   const handleTeleop = async (robot: RobotRecord) => {
     try {
-      const res = await fetchWithHeaders(`${baseUrl}/move-arm`, {
+      const virtual = !robot.leader_port && !robot.leader_config;
+      const res = await fetchWithHeaders(`${baseUrl}/${virtual ? "virtual/start" : "move-arm"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -53,7 +54,7 @@ const RobotConfigManager: React.FC<RobotConfigManagerProps> = ({
           title: "Teleoperation Started",
           description: data.message || `Started teleoperation for ${robot.name}.`,
         });
-        navigate("/teleoperation");
+        navigate(virtual ? "/teleoperation?virtual=1" : "/teleoperation");
       } else {
         toast({
           title: "Error Starting Teleoperation",

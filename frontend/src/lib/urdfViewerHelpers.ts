@@ -25,6 +25,7 @@ export interface URDFViewerElement extends HTMLElement {
   camera: PerspectiveCamera;
   controls: {
     target: Vector3;
+    enabled: boolean;
     update: () => void;
   };
   robot: Object3D;
@@ -80,6 +81,10 @@ export function createUrdfViewer(
   // is known, since that can be any real-world unit depending on the URDF.
   const grid = new GridHelper(1, 10, 0x6b6b7a, 0x44424f);
   grid.name = FLOOR_GRID_NAME;
+  grid.raycast = () => {};
+  // Invisible shadow plane must not intercept picking.
+  const shadowPlane = (viewer as URDFViewerElement & { plane?: Object3D }).plane;
+  if (shadowPlane) shadowPlane.raycast = () => {};
   viewer.scene.add(grid);
 
   // Camera position is no longer adjusted automatically to prevent auto-zooming.
