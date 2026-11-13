@@ -1,122 +1,84 @@
-<h1 align="center">🦾 LeLab</h1>
+# LeLab Follower-only
 
-## SO-101 follower-only modification
+Control an SO-101 follower arm from a browser without a physical leader arm. This is an experimental modification of [LeLab](https://github.com/huggingface/leLab), built on [LeRobot](https://github.com/huggingface/lerobot).
 
-This repository contains an experimental modification of LeLab for controlling an
-SO-101 follower without a physical leader. Calibrate the follower first, then
-start virtual teleoperation. Drag a joint in **Суставы**, or select **Вся рука**
-to drag the gripper position in the screen plane. Hold **W** to close the gripper
-and **E** to open it. The whole-arm solver controls position, not orientation.
+## Why this project exists
 
-For this modification, use a source checkout and an editable install (Python
-3.12 or newer), then install the additional kinematics dependencies:
+A typical SO-101 teleoperation setup uses two arms: a **leader** that a person moves and a **follower** that copies it. We wanted to work with a single follower, so we added a virtual control mode to LeLab. The follower is still a real robot; the virtual part is the input normally supplied by the leader.
+
+This makes it possible to explore and manually control a calibrated arm without buying or connecting a second arm. It does not turn mouse control into a physical leader, and the whole-arm control is still experimental.
+
+## What we added
+
+- **Follower-only teleoperation:** start a session with a configured, calibrated SO-101 follower and no leader configuration.
+- **3D joint control:** select **Суставы** (Joints), then drag an individual part of the displayed robot with the mouse.
+- **Whole-arm control:** select **Вся рука** (Whole arm) and drag the model to move the gripper position in the plane of the screen. Inverse kinematics calculates joint targets from that movement.
+- **Keyboard gripper control:** hold **W** to close and **E** to open the gripper. Release the key to stop the command.
+- **Motion limits:** commands use the saved follower calibration, bounded target offsets and gradual changes. Closing reaches the calibrated closed limit.
+
+The whole-arm solver controls the gripper's **position**, not its orientation. It chooses which joints to move, so not every motor necessarily moves with every drag. One drag is limited to 6 cm; release and drag again to continue. Joint and calibration limits can prevent a movement even when the pointer keeps moving.
+
+## Requirements
+
+- An SO-101 follower, connected by USB and powered by its own power supply.
+- A follower calibrated with LeRobot or LeLab. A leader arm or leader calibration is not required for this mode.
+- Python 3.12 or newer, Git and a browser. On Linux, the user needs permission to access the robot's serial port.
+- A source checkout: the experimental kinematics solver currently loads its robot model from the source tree.
+
+## Installation
+
+Clone this repository and create a virtual environment:
 
 ```bash
+git clone https://github.com/Eraly-ml/LeLab-Follower-only.git
+cd LeLab-Follower-only
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e .
 python -m pip install 'placo>=0.9.6,<0.9.16' 'cmeel-urdfdom>=4,<5' 'cmeel-tinyxml2<11'
+```
+
+The repository is private unless its owner changes its visibility, so cloning requires access. These commands are for a Unix-like shell; activate the virtual environment using the appropriate command on Windows.
+
+Build the frontend once for the regular application server (Node.js and npm are required):
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
 lelab
 ```
 
-The whole-arm mode is experimental and does not avoid collisions. Keep the
-workspace clear, verify calibration and support the arm when disconnecting:
-motors may release it. Stop if the arm binds or a motor strains. This fork has
-been tested on one SO-101 follower; behavior may vary with calibration and hardware.
+Open the address printed by LeLab, normally [http://localhost:8000](http://localhost:8000).
 
-<p align="center">
-  <b>The official graphical interface for <a href="https://github.com/huggingface/lerobot">LeRobot</a>.</b>
-</p>
+## Getting started
 
-<div align="center">
+1. Secure the follower, connect USB and power, and make sure its workspace is clear.
+2. In LeLab, configure the follower's serial port and calibration. Calibrate the follower if needed. Leave the leader configuration empty for follower-only mode.
+3. On the robot card, start **Teleoperation**. A configured follower without a leader is shown as **Virtual preview**.
+4. Choose **Суставы** for individual joint control or **Вся рука** for whole-arm movement. Start with small, slow movements.
+5. Hold **W** to close the gripper and **E** to open it. Keep the browser window focused when using the keyboard.
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/huggingface/leLab/blob/main/LICENSE)
-[![HF Space](https://img.shields.io/badge/🤗-Open%20in%20Spaces-yellow)](https://huggingface.co/spaces/lerobot/LeLab)
-[![Discord](https://img.shields.io/badge/Discord-Join_Us-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/q8Dzzpym3f)
+The first whole-arm interaction can take longer while the kinematics solver initializes. If motion is restricted, check the arm's pose and calibration: a joint may be near its configured limit or the requested position may be unreachable.
 
-</div>
+## Safety and current limitations
 
-**LeLab** is a web app that puts the full LeRobot workflow — calibrate, teleoperate, record, train, replay — into a single browser UI. Plug in your arm, open the app, and go. No CLI gymnastics, no keyboard prompts.
+This is experimental software tested with one SO-101 follower. Calibration, hardware, motor strength and mechanical assembly can differ. The robot can move when you interact with the controls.
 
-🤗 A web-native front door to LeRobot, designed so newcomers can get from "unboxing" to "training their first policy" in minutes.
+- There is **no collision avoidance** or obstacle detection. Keep people, cables and objects clear of the robot's workspace.
+- Support the arm when stopping the session, closing the page or losing the connection: motors may release and the arm may drop.
+- Stop if the arm binds, hits a limit or a motor strains. Do not force the gripper against an obstruction.
+- The 3D model is a control and visualization aid; it is not a guarantee of the robot's exact physical pose or clearance.
+- Follower-only mouse control is for manual teleoperation. Other inherited LeLab workflows have not all been verified with this mode.
 
-🤗 Install and run everything with a single command.
+## How it works
 
-## Quick Start
+The browser displays the SO-101 URDF model and sends joint or Cartesian targets to a local LeLab server. The server reads follower positions through LeRobot and checks targets against calibration and movement limits. For whole-arm dragging, LeRobot's kinematics interface and Placo solve for joint positions. On release, the control session requests the current position as a hold target; on disconnection or loss of the page, the session stops.
 
-Grab the one-liner from the [LeLab Space](https://huggingface.co/spaces/lerobot/LeLab) — it installs and runs LeLab + LeRobot in a single command.
+## Upstream and license
 
-A page will automatically open in your browser and you are ready to go.
+This project builds on [LeLab](https://github.com/huggingface/leLab) and [LeRobot](https://github.com/huggingface/lerobot). For the original LeLab's other features and documentation, see the upstream repository.
 
-## What you can do
-
-<div align="center">
-  <table>
-    <tr>
-      <td>🎯 <b>Calibrate</b></td>
-      <td>Guided web flow for both arms — no keyboard prompts.</td>
-    </tr>
-    <tr>
-      <td>🕹️ <b>Teleoperate</b></td>
-      <td>Move the leader, the follower mirrors it. Live joint streaming.</td>
-    </tr>
-    <tr>
-      <td>📹 <b>Record</b></td>
-      <td>Capture episodes into a LeRobotDataset, with cameras.</td>
-    </tr>
-    <tr>
-      <td>🔎 <b>Browse</b></td>
-      <td>Watch the episodes of a dataset on disk — every camera, frame by frame, with a joint-motion trace. No upload required.</td>
-    </tr>
-    <tr>
-      <td>🧠 <b>Train</b></td>
-      <td>Kick off a LeRobot training job, watch logs live.</td>
-    </tr>
-    <tr>
-      <td>🤖 <b>Run inference</b></td>
-      <td>Execute a trained policy on the follower.</td>
-    </tr>
-    <tr>
-      <td>⏪ <b>Replay</b></td>
-      <td>Re-run any recorded episode.</td>
-    </tr>
-    <tr>
-      <td>☁️ <b>Upload</b></td>
-      <td>Push your dataset to the <a href="https://huggingface.co/">Hugging Face Hub</a> in one click.</td>
-    </tr>
-  </table>
-</div>
-
-## Camera rotation
-
-If a camera is mounted upside down or sideways, select its **Rotation** in the camera setup on the Calibration page.
-Choose 0°, 90°, 180°, or 270° clockwise. For an upside-down wrist camera, choose 180°.
-
-LeLab saves the rotation for each camera. Setup and teleoperation previews, recorded frames, and inference use the selected rotation.
-Profiles without a rotation setting use 0°.
-
-The resolution setting describes the camera's capture resolution. A 90° or 270° rotation swaps the output dimensions.
-For example, a 640 × 480 capture becomes a 480 × 640 observation. The preview shows the complete rotated frame.
-
-Before inference, select the same rotation used for the training dataset. Check it again if you change the camera binding.
-Checkpoint image dimensions do not establish image orientation. For example, 0° and 180° have the same dimensions.
-The setting applies to new observations; it does not change existing recordings or checkpoints.
-
-## Resources
-
-- **[LeRobot](https://github.com/huggingface/lerobot):** the underlying library — go here for everything beyond the UI.
-- **[LeLab Space](https://huggingface.co/spaces/lerobot/LeLab):** try the UI in your browser.
-- **[Discord](https://discord.gg/q8Dzzpym3f):** chat with the LeRobot community.
-- **[CLAUDE.md](CLAUDE.md):** architecture rundown for contributors.
-
-## Contribute
-
-PRs welcome. Hot-reload mode for working on the code:
-
-```bash
-lelab --dev
-```
-
-Vite on `:8080`, uvicorn `--reload` on `:8000`. Installing LeLab builds the frontend bundle, so PRs never include `frontend/dist`.
-
-<div align="center">
-<sub>Originally hacked together by <a href="https://www.linkedin.com/posts/nicolas-rabault-_lerobot-hackathon-lerobot-ugcPost-7341065019368828930-jTnl/">Team LeLab at the 2025 LeRobot Worldwide Hackathon 🏆</a>, now maintained by the <a href="https://huggingface.co/lerobot">LeRobot</a> team at <a href="https://huggingface.co">Hugging Face</a> with ❤️</sub>
-</div>
+Licensed under the [Apache License 2.0](LICENSE).
