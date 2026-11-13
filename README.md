@@ -39,7 +39,7 @@ python -m pip install -e .
 python -m pip install 'placo>=0.9.6,<0.9.16' 'cmeel-urdfdom>=4,<5' 'cmeel-tinyxml2<11'
 ```
 
-The repository is private unless its owner changes its visibility, so cloning requires access. These commands are for a Unix-like shell; activate the virtual environment using the appropriate command on Windows.
+These commands are for a Unix-like shell; activate the virtual environment using the appropriate command on Windows.
 
 Build the frontend once for the regular application server (Node.js and npm are required):
 
